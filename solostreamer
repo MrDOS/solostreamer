@@ -2,7 +2,6 @@
 
 from collections import namedtuple
 from datetime import datetime, timedelta
-from enum import Enum, auto
 import math
 import serial
 import signal
