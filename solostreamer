@@ -1,0 +1,114 @@
+#! /usr/bin/env python3
+
+from collections import namedtuple
+from datetime import datetime, timedelta
+from enum import Enum, auto
+import math
+import serial
+import struct
+import sys
+import time
+import regex
+
+INTERVAL = timedelta(microseconds = 500000)
+
+Channel = namedtuple('Channel', ['equation', 'coefficients'])
+
+class Sample(namedtuple('Sample', ['date', 'values'])):
+    def __str__(self):
+        return self.date.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3] \
+             + ', ' \
+             + ', '.join([str(value) for value in self.values])
+
+def equation_tmp(raw_value, coefficients):
+    full_scale = 2 ** 30
+    r = raw_value / full_scale
+    x = math.log(1 / r - 1)
+    y = coefficients[0] + coefficients[1] * x + coefficients[2] * x**2 + coefficients[3] * x**3
+    t = (1 / y) - 273.15
+    return t
+
+class Instrument:
+    def __init__(self, device, interval):
+        self.device = device
+        self.buffer = b''
+        self.port = serial.Serial(device, 115200, timeout=1)
+        self.channels = []
+
+        self._interval = interval
+        self._last_date = None
+
+        channel_count = int(self['channels']['count'])
+        for channel_index in range(1, channel_count + 1):
+            channel = self['channel %d' % channel_index]
+            equation = globals()['equation_%s' % channel['equation']]
+
+            calibration = self['calibration %d' % channel_index]
+            coefficients = Instrument._parse_coefficients([value for key, value in calibration.items() if regex.match(r'c\d+', key)])
+
+            self.channels.append(Channel(equation=equation, coefficients=coefficients))
+
+    def __getitem__(self, key):
+        self.port.write(('%s\r\n' % key).encode())
+        return self._read(key)
+
+    def _read(self, key):
+        line = self.port.readline().strip().decode()
+        if regex.match(r'^Ready: ', line):
+            line = line[7:]
+
+        sample = self._parse_sample(line)
+        if sample is not None:
+            return sample
+        else:
+            return self._parse_setting(key, line)
+
+    def _parse_sample(self, line):
+        match = regex.match(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3})( (\d+(\.\d+)?))+', line)
+        if match is None:
+            return None
+
+        date = datetime.strptime(match[1] + '000', '%Y-%m-%d %H:%M:%S.%f')
+        """
+        solo T doesn't output sub-second timestamps when fetching so we need to
+        make them up ourselves.
+        """
+        if self._last_date == date:
+            date += self._interval
+        self._last_date = date
+
+        raw_values = match.captures(3)
+        values = []
+        for i in range(0, len(raw_values)):
+            values.append(self.channels[i].equation(float(raw_values[i]),
+                                                    self.channels[i].coefficients))
+
+        return Sample(date, values)
+
+    def _parse_setting(self, key, line):
+        line = line.split(' ', key.count(' ') + 1)
+        values = {key: value for key, value in [pair.split(' = ') for pair in line[-1:][0].split(', ')]}
+        return values
+
+    def _parse_coefficients(raw_coefficients):
+        return struct.unpack('>' + 'f' * len(raw_coefficients),
+                             bytes.fromhex(''.join(raw_coefficients)))
+
+if __name__ == '__main__':
+    device = sys.argv[1]
+    instrument = Instrument(device, INTERVAL)
+    serial = instrument['id']['serial']
+
+    print('Connected to instrument %s.' % serial)
+
+    start = datetime.now()
+    sample_count = 0
+
+    while True:
+        print(instrument['fetch'])
+        sample_count += 1
+
+        now = datetime.now()
+        sleep_duration = (start + sample_count * INTERVAL - now).total_seconds()
+        if sleep_duration > 0:
+            time.sleep(sleep_duration)
