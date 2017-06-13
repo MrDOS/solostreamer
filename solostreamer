@@ -44,7 +44,8 @@ class Instrument:
             equation = globals()['equation_%s' % channel['equation']]
 
             calibration = self['calibration %d' % channel_index]
-            coefficients = Instrument._parse_coefficients([value for key, value in calibration.items() if regex.match(r'c\d+', key)])
+            raw_coefficients = {key: value for key, value in calibration.items() if regex.match(r'c\d+', key)}
+            coefficients = Instrument._parse_coefficients(raw_coefficients)
 
             self.channels.append(Channel(equation=equation, coefficients=coefficients))
 
@@ -91,8 +92,11 @@ class Instrument:
         return values
 
     def _parse_coefficients(raw_coefficients):
+        concatenated_coefficients = ''
+        for key in sorted(raw_coefficients):
+            concatenated_coefficients += raw_coefficients[key]
         return struct.unpack('>' + 'f' * len(raw_coefficients),
-                             bytes.fromhex(''.join(raw_coefficients)))
+                             bytes.fromhex(concatenated_coefficients))
 
 def sigint_handler(signal, frame):
     sys.exit(0)
