@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 import math
 import serial
+import signal
 import struct
 import sys
 import time
@@ -94,7 +95,12 @@ class Instrument:
         return struct.unpack('>' + 'f' * len(raw_coefficients),
                              bytes.fromhex(''.join(raw_coefficients)))
 
+def sigint_handler(signal, frame):
+    sys.exit(0)
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGINT, sigint_handler)
+
     device = sys.argv[1]
     instrument = Instrument(device, INTERVAL)
 
