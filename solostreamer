@@ -108,7 +108,7 @@ if __name__ == '__main__':
     sample_count = 0
 
     while True:
-        print(instrument['fetch'])
+        print(instrument['fetch'], flush=True)
         sample_count += 1
 
         now = datetime.now()
