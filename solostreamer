@@ -97,9 +97,6 @@ class Instrument:
 if __name__ == '__main__':
     device = sys.argv[1]
     instrument = Instrument(device, INTERVAL)
-    serial = instrument['id']['serial']
-
-    print('Connected to instrument %s.' % serial)
 
     start = datetime.now()
     sample_count = 0
